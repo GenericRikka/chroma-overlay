@@ -26,7 +26,7 @@ It demonstrates how native Linux compositors can achieve the same visual effect 
 
 
 <p align="center">
-  <video src="https://github.com/GenericRikka/chroma-overlay/raw/refs/heads/master/docs/demo.mp4" controls width="800">
+  <video src="https://github.com/user-attachments/assets/31083bbc-2f33-454f-a14e-eeba9ebc3cec" controls width="800">
     Sorry, your browser doesn’t support embedded videos. Here’s a <a href="docs/demo.mp4">direct link</a>.
   </video>
   <br>
