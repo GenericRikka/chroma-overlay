@@ -1,6 +1,28 @@
 # chroma-overlay
 
-X11 overlay that chroma-keys **green** out of a specific window in real time.
+A real-time **OpenGL/X11 compositor overlay** for Linux that turns green-screened (chroma-key) application windows into true per-pixel transparent overlays — while keeping them **fully interactive** and perfectly **cursor-aligned**.
+
+This project was originally developed as a Linux compatibility prototype for games and applications that use green backgrounds to simulate transparency (such as *My Little Spider*).  
+It demonstrates how native Linux compositors can achieve the same visual effect without any engine changes.
+
+---
+
+
+### Features
+
+- **Chroma-keying**: Real-time removal of green backgrounds via GLSL shader  
+- **True transparency**: Uses XComposite + OpenGL for per-pixel alpha blending  
+- **Accurate input passthrough**: Clicks only land on opaque pixels; transparent areas are click-through  
+- **Perfect cursor alignment**: No input or coordinate drift  
+- **Zero modification** to the target application  
+- Works on Cinnamon, GNOME, KDE, Xfce, and other composited X11 desktops
+
+<p align="center">
+  <img src="docs/before.png" alt="Original greenscreen" width="45%">
+  <img src="docs/after.png" alt="Transparent overlay" width="45%">
+</p>
+
+<p align="center"><em>Left: Original window • Right: Transparent overlay</em></p>
 
 
 ## Build
@@ -12,16 +34,31 @@ Then:
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
 
+---
 
 ## Run
 
 1. Get the window id:
 xwinfo
+1.1 Get the window class:
+xprop
 2. Run the overlay (full-screen transparent window):
 ./build/chroma_overlay 0x3200007
 
 If your compositor is active, green areas in the target window should appear **transparent**.
 
+---
+
+
+## Dependencies
+
+| Library | Purpose |
+|----------|----------|
+| `libX11`, `libXcomposite`, `libXfixes`, `libXext` | Window capture and input shaping |
+| `GLFW`, `GLEW`, `OpenGL` | Rendering and context management |
+| `CMake >= 3.10` | Build system |
+
+---
 
 ## Notes
 
