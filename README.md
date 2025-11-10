@@ -44,7 +44,7 @@ cmake --build build -j
 
 1. Get the window id:
 ```bash
-xwinfo
+xwininfo
 ```
 1.1 Get the window class:
 ```bash
@@ -54,7 +54,11 @@ xprop
 ```bash
 ./build/chroma_overlay --class "My Little Spider"
 ```
-_Currently the target window needs to be already opened when starting this helper utility._
+or
+```bash
+./build/chroma-overlay --win-id 0x123456
+```
+> Note: X11 only (not Wayland) at the moment. Target window must be opened first.
 
 If your compositor is active, green areas in the target window should appear **transparent**.
 
@@ -79,3 +83,7 @@ If your compositor is active, green areas in the target window should appear **t
 - If the target window resizes, we rebind the pixmap.
 - NVIDIA: keep recent drivers; disable “Force Composition Pipeline” if you see lags.
 
+---
+
+## License
+BSD 2-Clause — see [LICENSE](LICENSE). Commercial and open-source projects may reuse and adapt.
