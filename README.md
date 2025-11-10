@@ -28,22 +28,33 @@ It demonstrates how native Linux compositors can achieve the same visual effect 
 ## Build
 
 Arch deps:
+```bash
 sudo pacman -S base-devel cmake gcc glfw-x11 glew libx11 libxcomposite libxext libxrender libxfixes
+```
 
 Then:
+```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j
+```
 
 ---
 
 ## Run
 
 1. Get the window id:
+```bash
 xwinfo
+```
 1.1 Get the window class:
+```bash
 xprop
-2. Run the overlay (full-screen transparent window):
-./build/chroma_overlay 0x3200007
+```
+3. Run the overlay (full-screen transparent window):
+```bash
+./build/chroma_overlay --class "My Little Spider"
+```
+_Currently the target window needs to be already opened when starting this helper utility._
 
 If your compositor is active, green areas in the target window should appear **transparent**.
 
