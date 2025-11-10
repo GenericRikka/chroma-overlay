@@ -1,0 +1,1 @@
+/usr/bin/c++ -O3 -DNDEBUG -Wl,--dependency-file=CMakeFiles/chroma_overlay.dir/link.d CMakeFiles/chroma_overlay.dir/src/main.cpp.o -o chroma_overlay  -lXcomposite -lXext -lXrender -lX11 -lXfixes -lglfw -lGLEW -lEGL -lGL -lGLU -lOpenGL /usr/lib/libGLX.so /usr/lib/libOpenGL.so
