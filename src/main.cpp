@@ -1,4 +1,3 @@
-// src/main.cpp
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
