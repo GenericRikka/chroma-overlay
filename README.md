@@ -25,6 +25,14 @@ It demonstrates how native Linux compositors can achieve the same visual effect 
 <p align="center"><em>Left: Original window • Right: Transparent overlay</em></p>
 
 
+<p align="center">
+  <video src="docs/demo.mp4" controls width="800">
+    Sorry, your browser doesn’t support embedded videos. Here’s a <a href="docs/demo.mp4">direct link</a>.
+  </video>
+  <br>
+  <em>My Little Spider on Linux with real transparency + correct input.</em>
+</p>
+
 ## Build
 
 Arch deps:
