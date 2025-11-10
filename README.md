@@ -18,8 +18,8 @@ It demonstrates how native Linux compositors can achieve the same visual effect 
 - Works on Cinnamon, GNOME, KDE, Xfce, and other composited X11 desktops
 
 <p align="center">
-  <img src="docs/before.png" alt="Original greenscreen" width="45%">
-  <img src="docs/after.png" alt="Transparent overlay" width="45%">
+  <img src="docs/before.jpg" alt="Original greenscreen" width="45%">
+  <img src="docs/after.jpg" alt="Transparent overlay" width="45%">
 </p>
 
 <p align="center"><em>Left: Original window • Right: Transparent overlay</em></p>
