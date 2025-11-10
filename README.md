@@ -64,7 +64,7 @@ xprop
 ```
 or
 ```bash
-./build/chroma-overlay --win-id 0x123456
+./build/chroma_overlay --win-id 0x123456
 ```
 > Note: X11 only (not Wayland) at the moment. Target window must be opened first.
 
