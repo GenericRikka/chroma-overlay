@@ -18,7 +18,8 @@
 #include <X11/Xatom.h>
 #include <X11/extensions/Xcomposite.h>
 #include <X11/extensions/shape.h>
-#include <X11/extensions/Xfixes.h> // for input region shaping
+#include <X11/extensions/Xfixes.h>   // for input region shaping
+#include <X11/extensions/Xrender.h>  // for XRenderFindVisualFormat (alpha check)
 
 #define GLFW_EXPOSE_NATIVE_X11
 #include <GLFW/glfw3native.h>
@@ -80,34 +81,30 @@ static Rect scaleToFB(Rect r, float sx, float sy) {
     return { int(r.x * sx), int(r.y * sy), int(r.w * sx), int(r.h * sy) };
 }
 
-// --- Frame extents (titlebar/borders) so the quad aligns perfectly ---
-static bool getFrameExtents(Display* dpy, Window w, int& left, int& right, int& top, int& bottom) {
-    Atom prop = XInternAtom(dpy, "_NET_FRAME_EXTENTS", False);
-    Atom actual; int format; unsigned long nitems, after;
-    unsigned char* data = nullptr;
-    if (XGetWindowProperty(dpy, w, prop, 0, 4, False, XA_CARDINAL,
-                           &actual, &format, &nitems, &after, &data) == Success &&
-        actual == XA_CARDINAL && format == 32 && nitems == 4 && data) {
-        unsigned long* v = reinterpret_cast<unsigned long*>(data);
-        left = (int)v[0]; right = (int)v[1]; top = (int)v[2]; bottom = (int)v[3];
-        XFree(data);
-        return true;
-    }
-    return false;
-}
-
+// --- EWMH fullscreen request (works on KWin/Plasma) ---
 static void setFullscreen(Display* dpy, Window w) {
     Atom wmState = XInternAtom(dpy, "_NET_WM_STATE", False);
-    Atom fs      = XInternAtom(dpy, "_NET_WM_STATE_FULLSCREEN", False);
-    XChangeProperty(dpy, w, wmState, XA_ATOM, 32, PropModeAppend,
-                    reinterpret_cast<const unsigned char*>(&fs), 1);
+    Atom fsAtom  = XInternAtom(dpy, "_NET_WM_STATE_FULLSCREEN", False);
+
+    XEvent e = {};
+    e.xclient.type = ClientMessage;
+    e.xclient.window = w;
+    e.xclient.message_type = wmState;
+    e.xclient.format = 32;
+    e.xclient.data.l[0] = 1;            // _NET_WM_STATE_ADD
+    e.xclient.data.l[1] = fsAtom;
+    e.xclient.data.l[2] = 0;
+    e.xclient.data.l[3] = 1;            // normal window
+    e.xclient.data.l[4] = 0;
+
+    XSendEvent(dpy, DefaultRootWindow(dpy), False,
+               SubstructureRedirectMask | SubstructureNotifyMask, &e);
     XFlush(dpy);
 }
 
 static Rect getWindowRect(Display* dpy, Window w) {
     XWindowAttributes wa; XGetWindowAttributes(dpy, w, &wa);
     Window child; int rx, ry;
-    // This already accounts for the WM frame/titlebar offsets
     XTranslateCoordinates(dpy, w, DefaultRootWindow(dpy), 0, 0, &rx, &ry, &child);
     return { rx, ry, wa.width, wa.height };
 }
@@ -132,29 +129,93 @@ static void setWindowOpacity(Display* dpy, Window w, unsigned long argb32) {
     XFlush(dpy);
 }
 
-// FBConfig supporting RGBA + texture_from_pixmap
-static GLXFBConfig chooseFBConfig(Display* dpy) {
-    int screen = DefaultScreen(dpy);
-    int attrs[] = {
-        GLX_DRAWABLE_TYPE, GLX_PIXMAP_BIT,
-        GLX_BIND_TO_TEXTURE_RGBA_EXT, True,
-        GLX_RENDER_TYPE, GLX_RGBA_BIT,
-        GLX_DOUBLEBUFFER, False,
-        GLX_RED_SIZE,   8,
-        GLX_GREEN_SIZE, 8,
-        GLX_BLUE_SIZE,  8,
-        GLX_ALPHA_SIZE, 8,
-        None
-    };
-    int n = 0;
-    GLXFBConfig* cfgs = glXChooseFBConfig(dpy, screen, attrs, &n);
-    if (!cfgs || n == 0) {
-        std::cerr << "No RGBA-capable FBConfig found.\n";
-        std::exit(1);
+// --- Robust window selection helpers (Steam/Plasma reparenting) ---
+
+// Descend to the first InputOutput, viewable child (actual client)
+static Window findViewableClient(Display* dpy, Window w) {
+    XWindowAttributes wa;
+    if (XGetWindowAttributes(dpy, w, &wa) && wa.class == InputOutput && wa.map_state == IsViewable)
+        return w;
+
+    Window root, parent; Window* children=nullptr; unsigned int n=0;
+    if (XQueryTree(dpy, w, &root, &parent, &children, &n)) {
+        for (unsigned int i=0;i<n;i++) {
+            Window c = findViewableClient(dpy, children[i]);
+            if (c) { if (children) XFree(children); return c; }
+        }
+        if (children) XFree(children);
     }
-    GLXFBConfig cfg = cfgs[0];
+    return 0;
+}
+
+// Wait until the window is viewable (mapped, sized, InputOutput)
+static bool waitUntilViewable(Display* dpy, Window w, int timeout_ms = 3000) {
+    auto start = std::chrono::steady_clock::now();
+    for (;;) {
+        XWindowAttributes wa;
+        if (XGetWindowAttributes(dpy, w, &wa)) {
+            if (wa.map_state == IsViewable && wa.width > 0 && wa.height > 0 && wa.class == InputOutput)
+                return true;
+        }
+        if (std::chrono::steady_clock::now() - start > std::chrono::milliseconds(timeout_ms))
+            return false;
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        XSync(dpy, False);
+    }
+}
+
+// --- FBConfig selection that MATCHES the target visual (RGB vs RGBA) ---
+
+static GLXFBConfig chooseFBConfigForWindow(Display* dpy, Window target, bool& hasAlphaOut) {
+    XWindowAttributes wa; XGetWindowAttributes(dpy, target, &wa);
+
+    // Does this visual have an alpha channel?
+    XRenderPictFormat* fmt = XRenderFindVisualFormat(dpy, wa.visual);
+    bool hasAlpha = (fmt && fmt->direct.alphaMask != 0);
+    hasAlphaOut = hasAlpha;
+
+    int screen = DefaultScreen(dpy);
+    int n=0;
+    GLXFBConfig* cfgs = glXChooseFBConfig(dpy, screen, nullptr, &n);
+    if (!cfgs || n == 0) { std::cerr << "No FBConfigs.\n"; std::exit(1); }
+
+    GLXFBConfig best = nullptr;
+    for (int i=0;i<n;i++) {
+        XVisualInfo* vi = glXGetVisualFromFBConfig(dpy, cfgs[i]);
+        if (!vi) continue;
+        bool idMatch = (vi->visualid == XVisualIDFromVisual(wa.visual));
+        XFree(vi);
+        if (!idMatch) continue;
+
+        int drawType=0, renderType=0, bindRGBA=0, bindRGB=0;
+        glXGetFBConfigAttrib(dpy, cfgs[i], GLX_DRAWABLE_TYPE, &drawType);
+        glXGetFBConfigAttrib(dpy, cfgs[i], GLX_RENDER_TYPE,   &renderType);
+#ifdef GLX_BIND_TO_TEXTURE_RGBA_EXT
+        glXGetFBConfigAttrib(dpy, cfgs[i], GLX_BIND_TO_TEXTURE_RGBA_EXT, &bindRGBA);
+#endif
+#ifdef GLX_BIND_TO_TEXTURE_RGB_EXT
+        glXGetFBConfigAttrib(dpy, cfgs[i], GLX_BIND_TO_TEXTURE_RGB_EXT,  &bindRGB);
+#endif
+        if (!(drawType & GLX_PIXMAP_BIT)) continue;
+        if (!(renderType & GLX_RGBA_BIT)) continue;
+
+        if (hasAlpha
+#ifdef GLX_BIND_TO_TEXTURE_RGBA_EXT
+            && bindRGBA
+#endif
+        ) { best = cfgs[i]; break; }
+
+        if (!hasAlpha
+#ifdef GLX_BIND_TO_TEXTURE_RGB_EXT
+            && bindRGB
+#endif
+        ) { best = cfgs[i]; break; }
+    }
+
+    if (!best) best = cfgs[0]; // last resort
+    GLXFBConfig ret = best;
     XFree(cfgs);
-    return cfg;
+    return ret;
 }
 
 struct Capture {
@@ -172,7 +233,7 @@ static void releaseCapture(Display* dpy, Capture& cap) {
     if (cap.texture)   { glDeleteTextures(1, &cap.texture);   cap.texture   = 0; }
 }
 
-static Capture makeCapture(Display* dpy, Window target, GLXFBConfig fbconf) {
+static Capture makeCapture(Display* dpy, Window target, GLXFBConfig fbconf, bool wantRGBA) {
     Capture cap;
 
     XCompositeRedirectWindow(dpy, target, CompositeRedirectAutomatic);
@@ -182,10 +243,12 @@ static Capture makeCapture(Display* dpy, Window target, GLXFBConfig fbconf) {
 
     cap.xpixmap = XCompositeNameWindowPixmap(dpy, target);
     if (!cap.xpixmap) { std::cerr << "XCompositeNameWindowPixmap failed.\n"; std::exit(1); }
+    XSync(dpy, False); // surface errors immediately
 
     int pixattrs[] = {
         GLX_TEXTURE_TARGET_EXT, GLX_TEXTURE_2D_EXT,
-        GLX_TEXTURE_FORMAT_EXT, GLX_TEXTURE_FORMAT_RGBA_EXT,
+        GLX_TEXTURE_FORMAT_EXT, wantRGBA ? GLX_TEXTURE_FORMAT_RGBA_EXT
+                                         : GLX_TEXTURE_FORMAT_RGB_EXT,
         None
     };
     cap.glxpixmap = glXCreatePixmap(dpy, fbconf, cap.xpixmap, pixattrs);
@@ -418,9 +481,14 @@ int main(int argc, char** argv) {
     makeClickThrough(dpy, overlay);
     setAlwaysOnTop(dpy, overlay);
 
+    // Let WM manage fullscreen (Plasma cares)
+    XSetWindowAttributes attrs;
+    attrs.override_redirect = False;
+    XChangeWindowAttributes(dpy, overlay, CWOverrideRedirect, &attrs);
+
     setFullscreen(dpy, overlay);
 
-    // make sure it sits at the root origin and covers full root
+    // place at (0,0) and cover the whole virtual root
     XMoveResizeWindow(dpy, overlay, 0, 0, screenW, screenH);
     XFlush(dpy);
 
@@ -460,12 +528,20 @@ int main(int argc, char** argv) {
                   << " for pattern '" << args.classPattern << "'.\n";
     }
 
+    // Descend to the actual client and wait until viewable
+    if (Window client = findViewableClient(dpy, target)) target = client;
+    if (!waitUntilViewable(dpy, target)) {
+        std::cerr << "Target window is not viewable (timed out).\n";
+        return 1;
+    }
+
     // Hide original window but keep it mapped & interactive
     setWindowOpacity(dpy, target, 0x00000000UL);
 
-    // Choose FBConfig and make capture
-    GLXFBConfig fbconf = chooseFBConfig(dpy);
-    Capture cap = makeCapture(dpy, target, fbconf);
+    // Choose FBConfig that matches window visual (RGB vs RGBA) and make capture
+    bool hasAlpha=false;
+    GLXFBConfig fbconf = chooseFBConfigForWindow(dpy, target, hasAlpha);
+    Capture cap = makeCapture(dpy, target, fbconf, /*wantRGBA=*/hasAlpha);
 
     // Shaders
     GLuint prog = makeProgram("src/shaders/chromakey.vert", "src/shaders/chromakey.frag");
@@ -499,7 +575,12 @@ int main(int argc, char** argv) {
         if (nowR.w != rect.w || nowR.h != rect.h) {
             glBindTexture(GL_TEXTURE_2D, 0);
             releaseCapture(dpy, cap);
-            cap = makeCapture(dpy, target, fbconf);
+
+            // Re-check alpha after size changes (some engines swap visuals)
+            bool hasA=false;
+            fbconf = chooseFBConfigForWindow(dpy, target, hasA);
+            cap = makeCapture(dpy, target, fbconf, /*wantRGBA=*/hasA);
+
             applyOpaqueInputRegion(dpy, target, cap.xpixmap, cap.w, cap.h, /*step=*/2);
             lastMaskUpdate = std::chrono::steady_clock::now();
         }
@@ -516,7 +597,7 @@ int main(int argc, char** argv) {
         float sy = float(fbH) / float(screenH);
         Rect fbRect = scaleToFB(rect, sx, sy);
 
-        // Periodic input-mask refresh (unchanged)
+        // Periodic input-mask refresh (if content changes)
         auto nowT = std::chrono::steady_clock::now();
         if (nowT - lastMaskUpdate > std::chrono::milliseconds(100)) {
             applyOpaqueInputRegion(dpy, target, cap.xpixmap, cap.w, cap.h, /*step=*/2);
@@ -538,7 +619,6 @@ int main(int argc, char** argv) {
         glfwSwapBuffers(win);
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
-
 
     // Restore original window opacity on exit
     setWindowOpacity(dpy, target, 0xFFFFFFFFUL);

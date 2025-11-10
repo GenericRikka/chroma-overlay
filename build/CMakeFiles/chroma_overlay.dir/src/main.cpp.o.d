@@ -166,7 +166,8 @@ CMakeFiles/chroma_overlay.dir/src/main.cpp.o: \
  /usr/include/X11/extensions/composite.h \
  /usr/include/X11/extensions/xfixeswire.h \
  /usr/include/X11/extensions/Xfixes.h /usr/include/X11/extensions/shape.h \
- /usr/include/X11/extensions/shapeconst.h /usr/include/GLFW/glfw3native.h \
- /usr/include/X11/extensions/Xrandr.h /usr/include/X11/extensions/randr.h \
+ /usr/include/X11/extensions/shapeconst.h \
  /usr/include/X11/extensions/Xrender.h \
- /usr/include/X11/extensions/render.h /usr/include/X11/Xdefs.h
+ /usr/include/X11/extensions/render.h /usr/include/X11/Xdefs.h \
+ /usr/include/GLFW/glfw3native.h /usr/include/X11/extensions/Xrandr.h \
+ /usr/include/X11/extensions/randr.h
